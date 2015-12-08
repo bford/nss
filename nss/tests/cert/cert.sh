@@ -2004,27 +2004,27 @@ cert_init
 cert_all_CA
 cert_extended_ssl 
 cert_ssl 
-cert_smime_client        
-if [ -z "$NSS_TEST_DISABLE_FIPS" ]; then
-    cert_fips
-fi
-cert_eccurves
-cert_extensions
-cert_san_and_generic_extensions
-cert_test_password
-cert_test_distrust
-cert_test_ocspresp
-
-if [ -z "$NSS_TEST_DISABLE_CRL" ] ; then
-    cert_crl_ssl
-else
-    echo "$SCRIPTNAME: Skipping CRL Tests"
-fi
-
-if [ -n "$DO_DIST_ST" -a "$DO_DIST_ST" = "TRUE" ] ; then
-    cert_stresscerts 
-fi
-
-cert_iopr_setup
-
+#cert_smime_client        
+#if [ -z "$NSS_TEST_DISABLE_FIPS" ]; then
+#    cert_fips
+#fi
+#cert_eccurves
+#cert_extensions
+#cert_san_and_generic_extensions
+#cert_test_password
+#cert_test_distrust
+#cert_test_ocspresp
+#
+#if [ -z "$NSS_TEST_DISABLE_CRL" ] ; then
+#    cert_crl_ssl
+#else
+#    echo "$SCRIPTNAME: Skipping CRL Tests"
+#fi
+#
+#if [ -n "$DO_DIST_ST" -a "$DO_DIST_ST" = "TRUE" ] ; then
+#    cert_stresscerts 
+#fi
+#
+#cert_iopr_setup
+#
 cert_cleanup
