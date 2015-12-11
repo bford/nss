@@ -8,6 +8,9 @@
 
 /* TODO(ekr): Implement HelloVerifyRequest on server side. OK for now. */
 
+#define TLS13		1	// XXX hack: pretend we've negotiated TLS 1.3
+#define TLS13_PADDING	1	// XXX hack: pretend this is a config option
+
 #include "cert.h"
 #include "ssl.h"
 #include "cryptohi.h"	/* for DSAU_ stuff */
@@ -2625,9 +2628,27 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 	const int nonceLen = cipher_def->explicit_nonce_size;
 	const int tagLen = cipher_def->tag_size;
 
+	PORT_Assert(ivLen == 0);
 	if (headerLen + nonceLen + contentLen + tagLen > wrBuf->space) {
 	    PORT_SetError(SEC_ERROR_LIBRARY_FAILURE);
 	    return SECFailure;
+	}
+
+	if (TLS13) {
+	  /* We must copy input into wrBuf to append the internal trailer */
+	  unsigned char *wrPtr = wrBuf->buf + headerLen + nonceLen;
+	  if (pIn != wrPtr) {
+	    PORT_Assert(contentLen + TLS13_RECORD_TRAILER_LENGTH
+			<= wrBuf->space - headerLen - nonceLen);
+	    memcpy(wrPtr, pIn, contentLen);
+	    pIn = wrPtr;
+	  }
+
+	  /* Append the internal trailer */
+#if 0
+	  wrPtr[contentLen++] = type; /* inner content type */
+	  type = content_application_data; /* fixed outer content type */
+#endif
 	}
 
 	cipherBytes = contentLen;
@@ -2644,6 +2665,7 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 	    return SECFailure;
 	}
     } else {
+PORT_Assert(cipher_def->cipher == cipher_null);	// only test AEAD or null!
 	/*
 	 * Add the MAC
 	 */
@@ -12177,7 +12199,7 @@ ssl3_HandleRecord(sslSocket *ss, SSL3Ciphertext *cText, sslBuffer *databuf)
 		ss->sec.isServer ? &crSpec->client : &crSpec->server,
 		PR_TRUE,                          /* do decrypt */
 		plaintext->buf,                   /* out */
-		(int*) &plaintext->len,           /* outlen */
+		(int*) &decryptedLen,          	  /* outlen */
 		plaintext->space,                 /* maxout */
 		cText->buf->buf,                  /* in */
 		cText->buf->len,                  /* inlen */
@@ -12185,6 +12207,30 @@ ssl3_HandleRecord(sslSocket *ss, SSL3Ciphertext *cText, sslBuffer *databuf)
 	if (rv != SECSuccess) {
 	    good = 0;
 	}
+
+#if 0
+	if (TLS13 && good) {
+	  /* Remove record padding to find the TLS 1.3 trailer */
+	  while (decryptedLen >= 1 && plaintext->buf[decryptedLen-1] == 0) {
+PORT_Assert(0);
+	    decryptedLen--;
+	  }
+
+	  /* Ensure the plaintext still contains required internal trailer */
+          if (plaintext->len < TLS13_RECORD_TRAILER_LENGTH) {
+PORT_Assert(0);
+	    ssl_ReleaseSpecReadLock(ss);
+	    SSL3_SendAlert(ss, alert_fatal, record_overflow);	/* XXX */
+            PORT_SetError(SSL_ERROR_BAD_BLOCK_PADDING);		/* XXX */
+	    return SECFailure;
+          }
+
+	  /* Decode the internal trailer */
+	  //rType = plaintext->buf[--decryptedLen];
+	}
+#endif
+	plaintext->len = decryptedLen;
+
     } else {
 	if (cipher_def->type == type_block &&
 	    ((cText->buf->len - ivLen) % cipher_def->block_size) != 0) {
