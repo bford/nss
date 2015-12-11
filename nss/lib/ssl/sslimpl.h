@@ -401,6 +401,9 @@ struct sslGatherStr {
     */
     unsigned int  recordLen;					/* ssl2 only */
 
+    /* TLS 1.3: if nonzero, length of next record carried in prior record */
+    unsigned int  nextRecordLength;
+
     /* number of bytes of padding to be removed after decrypting. */
     /* This value is taken from the record's hdr[2], which means a too large
      * value could crash us.

@@ -2640,7 +2640,11 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 	  }
 
 	  /* Append the TLS 1.3 internal trailer */
-	  wrPtr[contentLen++] = type; /* inner content type */
+	  unsigned char *trailer = &wrPtr[contentLen];
+	  contentLen += TLS13_RECORD_TRAILER_LENGTH;
+	  trailer[0] = 0;
+	  trailer[1] = 0;
+	  trailer[2] = type; /* inner content type */
 	  PORT_Assert(type != 0); /* must be distinct from padding bytes! */
 	  type = content_application_data; /* fixed outer content type */
 
@@ -12250,8 +12254,12 @@ ssl3_HandleRecord(sslSocket *ss, SSL3Ciphertext *cText, sslBuffer *databuf)
 	    return SECFailure;
           }
 
-	  /* Decode the internal trailer */
-	  rType = plaintext->buf[--decryptedLen];
+	  /* Decode and strip the internal trailer */
+	  decryptedLen -= TLS13_RECORD_TRAILER_LENGTH;
+	  unsigned char *trailer = &plaintext->buf[decryptedLen];
+	  rType = trailer[2];
+	  ss->gs.nextRecordLength = (trailer[0] << 8) | trailer[1];
+PORT_Assert(ss->gs.nextRecordLength == 0);
 	}
 	plaintext->len = decryptedLen;
 
