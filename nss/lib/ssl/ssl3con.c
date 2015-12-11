@@ -2644,13 +2644,15 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 	  PORT_Assert(type != 0); /* must be distinct from padding bytes! */
 	  type = content_application_data; /* fixed outer content type */
 
-	  /* Pad so ciphertext is a multiple of TLS13_PAD_FRAGMENT_LENGTH */
-	  unsigned int ctextLen = nonceLen + contentLen + tagLen;
-	  unsigned int ptextLen = (ctextLen + TLS13_PAD_FRAGMENT_LENGTH - 1)
+	  if (TLS13_PADDING) {
+	    /* Pad so ciphertext is a multiple of TLS13_PAD_FRAGMENT_LENGTH */
+	    unsigned int ctextLen = nonceLen + contentLen + tagLen;
+	    unsigned int ptextLen = (ctextLen + TLS13_PAD_FRAGMENT_LENGTH - 1)
 				& ~(TLS13_PAD_FRAGMENT_LENGTH - 1);
-	  unsigned int padLen = ptextLen - ctextLen;
-	  while (padLen-- > 0) {
-	    wrPtr[contentLen++] = 0;
+	    unsigned int padLen = ptextLen - ctextLen;
+	    while (padLen-- > 0) {
+	      wrPtr[contentLen++] = 0;
+	    }
 	  }
 	}
 
@@ -2894,6 +2896,14 @@ ssl3_SendRecord(   sslSocket *        ss,
 	PRUint32  contentLen = PR_MIN(nIn, MAX_FRAGMENT_LENGTH);
 	unsigned int spaceNeeded;
 	unsigned int numRecords;
+
+	if (TLS13_PADDING) {
+	  /* Limit contentLen so all ciphertexts are of a fixed size */
+	  PRUint32 nonceLen = ss->ssl3.cwSpec->cipher_def->explicit_nonce_size;
+	  PRUint32 tagLen = ss->ssl3.cwSpec->cipher_def->tag_size;
+	  PRUint32 overhead = nonceLen + TLS13_RECORD_TRAILER_LENGTH + tagLen;
+	  contentLen = PR_MIN(nIn, TLS13_PAD_FRAGMENT_LENGTH - overhead);
+	}
 
 	ssl_GetSpecReadLock(ss);    /********************************/
 
