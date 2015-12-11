@@ -2561,9 +2561,10 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 			      PRBool             capRecordVersion,
                               SSL3ContentType    type,
 		              const SSL3Opaque * pIn,
-		              PRUint32           contentLen,
+		              PRUint32           *pContentLen,
 		              sslBuffer *        wrBuf)
 {
+    PRUint32		      contentLen = *pContentLen;
     const ssl3BulkCipherDef * cipher_def;
     SECStatus                 rv;
     PRUint32                  macLen = 0;
@@ -2622,6 +2623,7 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
     if (cipher_def->type == type_aead) {
 	const int nonceLen = cipher_def->explicit_nonce_size;
 	const int tagLen = cipher_def->tag_size;
+	const int overhead = nonceLen + TLS13_RECORD_TRAILER_LENGTH + tagLen;
 
 	PORT_Assert(ivLen == 0);
 	if (headerLen + nonceLen + contentLen + tagLen > wrBuf->space) {
@@ -2630,10 +2632,31 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 	}
 
 	if (TLS13) {
+	  PORT_Assert(cwSpec->compressor == NULL);
+PORT_Assert(contentLen < TLS13_PAD_FRAGMENT_LENGTH);
+
+	  /* Limit length of ciphertext we produce */
+	  PRUint32 ctextLen = TLS13_PAD_FRAGMENT_LENGTH;
+	  if (cwSpec->writeNextLen != 0) {	/* length already committed? */
+	    ctextLen = cwSpec->writeNextLen;	/* then abide by it */
+	    headerLen = 0;			/* and go headerless */
+	  }
+
+	  /* Limit cleartext contentLen accordingly */
+	  PRUint32 thisLen = PR_MIN(contentLen, ctextLen - overhead);
+	  PRUint32 nextLen = contentLen - thisLen; /* left for next record */
+	  *pContentLen = contentLen = thisLen;
+	  PRUint32 padLen = ctextLen - contentLen - overhead;
+
+	  /* The next record can be any multiple of the padding granularity */
+	  cwSpec->writeNextLen = (nextLen+overhead+TLS13_PAD_FRAGMENT_LENGTH-1)
+				& ~(+TLS13_PAD_FRAGMENT_LENGTH-1);
+PORT_Assert(cwSpec->writeNextLen == TLS13_PAD_FRAGMENT_LENGTH);
+
 	  /* We must copy input into wrBuf to append the internal trailer */
 	  unsigned char *wrPtr = wrBuf->buf + headerLen + nonceLen;
 	  if (pIn != wrPtr) {
-	    PORT_Assert(contentLen + TLS13_RECORD_TRAILER_LENGTH
+	    PORT_Assert(contentLen + TLS13_RECORD_TRAILER_LENGTH + padLen
 			<= wrBuf->space - headerLen - nonceLen);
 	    memcpy(wrPtr, pIn, contentLen);
 	    pIn = wrPtr;
@@ -2642,21 +2665,13 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 	  /* Append the TLS 1.3 internal trailer */
 	  unsigned char *trailer = &wrPtr[contentLen];
 	  contentLen += TLS13_RECORD_TRAILER_LENGTH;
-	  trailer[0] = 0;
-	  trailer[1] = 0;
+	  trailer[0] = cwSpec->writeNextLen >> 8;
+	  trailer[1] = cwSpec->writeNextLen;
 	  trailer[2] = type; /* inner content type */
 	  PORT_Assert(type != 0); /* must be distinct from padding bytes! */
 	  type = content_application_data; /* fixed outer content type */
-
-	  if (TLS13_PADDING) {
-	    /* Pad so ciphertext is a multiple of TLS13_PAD_FRAGMENT_LENGTH */
-	    unsigned int ctextLen = nonceLen + contentLen + tagLen;
-	    unsigned int ptextLen = (ctextLen + TLS13_PAD_FRAGMENT_LENGTH - 1)
-				& ~(TLS13_PAD_FRAGMENT_LENGTH - 1);
-	    unsigned int padLen = ptextLen - ctextLen;
-	    while (padLen-- > 0) {
-	      wrPtr[contentLen++] = 0;
-	    }
+	  while (padLen-- > 0) {
+	    wrPtr[contentLen++] = 0;
 	  }
 	}
 
@@ -2776,8 +2791,9 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
     PORT_Assert(cipherBytes <= MAX_FRAGMENT_LENGTH + 1024);
 
     wrBuf->len    = cipherBytes + headerLen;
-    wrBuf->buf[0] = type;
-    if (isDTLS) {
+    if (headerLen > 0) {
+      wrBuf->buf[0] = type;
+      if (isDTLS) {
 	SSL3ProtocolVersion version;
 
 	version = dtls_TLSVersionToDTLSVersion(cwSpec->version);
@@ -2793,7 +2809,7 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 	wrBuf->buf[10] = (unsigned char)(cwSpec->write_seq_num.low >>  0);
 	wrBuf->buf[11] = MSB(cipherBytes);
 	wrBuf->buf[12] = LSB(cipherBytes);
-    } else {
+      } else {
 	SSL3ProtocolVersion version = cwSpec->version;
 
 	if (capRecordVersion) {
@@ -2803,7 +2819,9 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 	wrBuf->buf[2] = LSB(version);
 	wrBuf->buf[3] = MSB(cipherBytes);
 	wrBuf->buf[4] = LSB(cipherBytes);
+      }
     }
+printf("SENT %d len %d hdrlen %d\n", cwSpec->write_seq_num.low, wrBuf->len, headerLen);
 
     ssl3_BumpSequenceNumber(&cwSpec->write_seq_num);
 
@@ -2897,17 +2915,9 @@ ssl3_SendRecord(   sslSocket *        ss,
     }
 
     while (nIn > 0) {
-	PRUint32  contentLen = PR_MIN(nIn, MAX_FRAGMENT_LENGTH);
+	PRUint32 contentLen = PR_MIN(nIn, MAX_FRAGMENT_LENGTH);
 	unsigned int spaceNeeded;
 	unsigned int numRecords;
-
-	if (TLS13_PADDING) {
-	  /* Limit contentLen so all ciphertexts are of a fixed size */
-	  PRUint32 nonceLen = ss->ssl3.cwSpec->cipher_def->explicit_nonce_size;
-	  PRUint32 tagLen = ss->ssl3.cwSpec->cipher_def->tag_size;
-	  PRUint32 overhead = nonceLen + TLS13_RECORD_TRAILER_LENGTH + tagLen;
-	  contentLen = PR_MIN(nIn, TLS13_PAD_FRAGMENT_LENGTH - overhead);
-	}
 
 	ssl_GetSpecReadLock(ss);    /********************************/
 
@@ -2940,10 +2950,11 @@ ssl3_SendRecord(   sslSocket *        ss,
 	if (numRecords == 2) {
 	    sslBuffer secondRecord;
 
+	    PRUint32 recordLen = 1;
 	    rv = ssl3_CompressMACEncryptRecord(ss->ssl3.cwSpec,
 					       ss->sec.isServer, IS_DTLS(ss),
 					       capRecordVersion, type, pIn,
-					       1, wrBuf);
+					       &recordLen, wrBuf);
 	    if (rv != SECSuccess)
 	        goto spec_locked_loser;
 
@@ -2954,10 +2965,11 @@ ssl3_SendRecord(   sslSocket *        ss,
 	    secondRecord.len = 0;
 	    secondRecord.space = wrBuf->space - wrBuf->len;
 
+	    recordLen = contentLen - 1;
 	    rv = ssl3_CompressMACEncryptRecord(ss->ssl3.cwSpec,
 	                                       ss->sec.isServer, IS_DTLS(ss),
 					       capRecordVersion, type,
-					       pIn + 1, contentLen - 1,
+					       pIn + 1, &recordLen,
 	                                       &secondRecord);
 	    if (rv == SECSuccess) {
 	        PRINT_BUF(50, (ss, "send (encrypted) record data [2/2]:",
@@ -2971,7 +2983,8 @@ ssl3_SendRecord(   sslSocket *        ss,
 						   IS_DTLS(ss),
 						   capRecordVersion,
 						   type, pIn,
-						   contentLen, wrBuf);
+						   &contentLen, wrBuf);
+		/* In TLS 1.3, contentLen might change due to padding. */
 	    } else {
 		rv = dtls_CompressMACEncryptRecord(ss, epoch,
 						   !!(flags & ssl_SEND_FLAG_USE_EPOCH),
@@ -12258,8 +12271,7 @@ ssl3_HandleRecord(sslSocket *ss, SSL3Ciphertext *cText, sslBuffer *databuf)
 	  decryptedLen -= TLS13_RECORD_TRAILER_LENGTH;
 	  unsigned char *trailer = &plaintext->buf[decryptedLen];
 	  rType = trailer[2];
-	  ss->gs.nextRecordLength = (trailer[0] << 8) | trailer[1];
-PORT_Assert(ss->gs.nextRecordLength == 0);
+	  ss->gs.readNextLen = (trailer[0] << 8) | trailer[1];
 	}
 	plaintext->len = decryptedLen;
 
@@ -12528,6 +12540,8 @@ ssl3_InitCipherSpec(sslSocket *ss, ssl3CipherSpec *spec)
 
     spec->read_seq_num.high        = 0;
     spec->read_seq_num.low         = 0;
+
+    spec->writeNextLen		   = 0;
 
     spec->epoch                    = 0;
     dtls_InitRecvdRecords(&spec->recvdRecords);

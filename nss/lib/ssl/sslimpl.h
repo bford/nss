@@ -401,14 +401,14 @@ struct sslGatherStr {
     */
     unsigned int  recordLen;					/* ssl2 only */
 
-    /* TLS 1.3: if nonzero, length of next record carried in prior record */
-    unsigned int  nextRecordLength;
-
     /* number of bytes of padding to be removed after decrypting. */
     /* This value is taken from the record's hdr[2], which means a too large
      * value could crash us.
      */
     unsigned int  recordPadding;				/* ssl2 only */
+
+    /* TLS 1.3: if nonzero, length of next record carried in prior record */
+    PRUint32      readNextLen;
 
     /* plaintext DATA begins this many bytes into "buf".  */
     unsigned int  recordOffset;					/* ssl2 only */
@@ -592,6 +592,7 @@ typedef struct {
     PK11SymKey *       master_secret;
     SSL3SequenceNumber write_seq_num;
     SSL3SequenceNumber read_seq_num;
+    PRUint32           writeNextLen; /* TLS 1.3 promised next record len */
     SSL3ProtocolVersion version;
     ssl3KeyMaterial    client;
     ssl3KeyMaterial    server;
@@ -1482,7 +1483,7 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 			      PRBool             capRecordVersion,
                               SSL3ContentType    type,
 		              const SSL3Opaque * pIn,
-		              PRUint32           contentLen,
+		              PRUint32           *pContentLen,
 		              sslBuffer *        wrBuf);
 extern PRInt32   ssl3_SendRecord(sslSocket *ss, DTLSEpoch epoch,
 				 SSL3ContentType type,
