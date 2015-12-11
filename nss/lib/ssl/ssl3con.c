@@ -2639,10 +2639,19 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 	    pIn = wrPtr;
 	  }
 
-	  /* Append the internal trailer */
+	  /* Append the TLS 1.3 internal trailer */
 	  wrPtr[contentLen++] = type; /* inner content type */
 	  PORT_Assert(type != 0); /* must be distinct from padding bytes! */
 	  type = content_application_data; /* fixed outer content type */
+
+	  /* Pad so ciphertext is a multiple of TLS13_PAD_FRAGMENT_LENGTH */
+	  unsigned int ctextLen = nonceLen + contentLen + tagLen;
+	  unsigned int ptextLen = (ctextLen + TLS13_PAD_FRAGMENT_LENGTH - 1)
+				& ~(TLS13_PAD_FRAGMENT_LENGTH - 1);
+	  unsigned int padLen = ptextLen - ctextLen;
+	  while (padLen-- > 0) {
+	    wrPtr[contentLen++] = 0;
+	  }
 	}
 
 	/* Calculate the pseudoHeader after adding the TLS 1.3 trailer */
@@ -12220,7 +12229,6 @@ ssl3_HandleRecord(sslSocket *ss, SSL3Ciphertext *cText, sslBuffer *databuf)
 	if (TLS13 && good) {
 	  /* Remove record padding to find the TLS 1.3 trailer */
 	  while (decryptedLen >= 1 && plaintext->buf[decryptedLen-1] == 0) {
-PORT_Assert(0);
 	    decryptedLen--;
 	  }
 
