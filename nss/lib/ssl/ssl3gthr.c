@@ -42,8 +42,19 @@ ssl3_GatherData(sslSocket *ss, sslGather *gs, int flags)
 
     PORT_Assert( ss->opt.noLocks || ssl_HaveRecvBufLock(ss) );
     if (gs->state == GS_INIT) {
-	gs->state       = GS_HEADER;
-	gs->remainder   = 5;
+	if (gs->readNextLen == 0) {
+	  gs->state       = GS_HEADER;
+	  gs->remainder   = 5;
+	} else { /* TLS 1.3: length carried in prior record's trailer */
+	  gs->state	  = GS_DATA;
+	  gs->remainder   = gs->readNextLen;
+	  if (gs->remainder > gs->inbuf.space) {
+	    err = sslBuffer_Grow(&gs->inbuf, gs->remainder);
+	    if (err) {	/* realloc has set error code to no mem. */
+	      return err;
+	    }
+	  }
+	}
 	gs->offset      = 0;
 	gs->writeOffset = 0;
 	gs->readOffset  = 0;

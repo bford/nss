@@ -373,6 +373,7 @@ ssl_InitGather(sslGather *gs)
     gs->state = GS_INIT;
     gs->writeOffset = 0;
     gs->readOffset  = 0;
+    gs->readNextLen = 0;
     gs->dtlsPacketOffset = 0;
     gs->dtlsPacket.len = 0;
     status = sslBuffer_Grow(&gs->buf, 4096);

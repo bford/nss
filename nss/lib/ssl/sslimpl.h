@@ -407,6 +407,9 @@ struct sslGatherStr {
      */
     unsigned int  recordPadding;				/* ssl2 only */
 
+    /* TLS 1.3: if nonzero, length of next record carried in prior record */
+    PRUint32      readNextLen;
+
     /* plaintext DATA begins this many bytes into "buf".  */
     unsigned int  recordOffset;					/* ssl2 only */
 
@@ -589,6 +592,7 @@ typedef struct {
     PK11SymKey *       master_secret;
     SSL3SequenceNumber write_seq_num;
     SSL3SequenceNumber read_seq_num;
+    PRUint32           writeNextLen; /* TLS 1.3 promised next record len */
     SSL3ProtocolVersion version;
     ssl3KeyMaterial    client;
     ssl3KeyMaterial    server;
