@@ -815,7 +815,7 @@ dtls_CompressMACEncryptRecord(sslSocket *        ss,
 
     if (cwSpec) {
         rv = ssl3_CompressMACEncryptRecord(cwSpec, ss->sec.isServer, PR_TRUE,
-                                           PR_FALSE, type, pIn, contentLen,
+                                           PR_FALSE, type, pIn, &contentLen,
                                            wrBuf);
     } else {
         PR_NOT_REACHED("Couldn't find a cipher spec matching epoch");

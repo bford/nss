@@ -2633,7 +2633,6 @@ ssl3_CompressMACEncryptRecord(ssl3CipherSpec *   cwSpec,
 
 	if (TLS13) {
 	  PORT_Assert(cwSpec->compressor == NULL);
-PORT_Assert(contentLen < TLS13_PAD_FRAGMENT_LENGTH);
 
 	  /* Limit length of ciphertext we produce */
 	  PRUint32 ctextLen = TLS13_PAD_FRAGMENT_LENGTH;
@@ -2651,7 +2650,6 @@ PORT_Assert(contentLen < TLS13_PAD_FRAGMENT_LENGTH);
 	  /* The next record can be any multiple of the padding granularity */
 	  cwSpec->writeNextLen = (nextLen+overhead+TLS13_PAD_FRAGMENT_LENGTH-1)
 				& ~(+TLS13_PAD_FRAGMENT_LENGTH-1);
-PORT_Assert(cwSpec->writeNextLen == TLS13_PAD_FRAGMENT_LENGTH);
 
 	  /* We must copy input into wrBuf to append the internal trailer */
 	  unsigned char *wrPtr = wrBuf->buf + headerLen + nonceLen;
@@ -2670,6 +2668,7 @@ PORT_Assert(cwSpec->writeNextLen == TLS13_PAD_FRAGMENT_LENGTH);
 	  trailer[2] = type; /* inner content type */
 	  PORT_Assert(type != 0); /* must be distinct from padding bytes! */
 	  type = content_application_data; /* fixed outer content type */
+
 	  while (padLen-- > 0) {
 	    wrPtr[contentLen++] = 0;
 	  }
@@ -2821,7 +2820,6 @@ PORT_Assert(cwSpec->writeNextLen == TLS13_PAD_FRAGMENT_LENGTH);
 	wrBuf->buf[4] = LSB(cipherBytes);
       }
     }
-printf("SENT %d len %d hdrlen %d\n", cwSpec->write_seq_num.low, wrBuf->len, headerLen);
 
     ssl3_BumpSequenceNumber(&cwSpec->write_seq_num);
 

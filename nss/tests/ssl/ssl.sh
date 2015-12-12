@@ -21,7 +21,6 @@
 
 NSS_TEST_DISABLE_CRL=1
 NSS_DISABLE_ECC=1
-#NSS_SSL_RUN="cov"
 NSS_SSL_RUN="cov stress"
 
 ############################## ssl_init ################################
