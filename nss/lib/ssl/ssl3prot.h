@@ -35,7 +35,11 @@ typedef PRUint16 ssl3CipherSuite;
 /* SSL3_RECORD_HEADER_LENGTH + epoch/sequence_number */
 #define DTLS_RECORD_HEADER_LENGTH       13
 
-#define MAX_FRAGMENT_LENGTH          16384
+#define MAX_FRAGMENT_LENGTH          16384	/* max payload per record */
+
+/* TLS 1.3 adds a trailer and optional padding in the AEAD-encrypted payload */
+#define TLS13_RECORD_TRAILER_LENGTH	1	/* plus optional padding */
+#define TLS13_PAD_FRAGMENT_LENGTH     256	/* padding granularity */
 
 typedef enum {
     content_change_cipher_spec = 20,
